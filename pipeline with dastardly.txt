@@ -1,0 +1,45 @@
+trigger:
+- master
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+jobs:
+- job: Sonar_SAST_Scan_Job
+  container: maven:3.8.1-openjdk-17-slim
+  steps:
+  - script: |
+      mvn verify package org.sonarsource.scanner.maven:sonar-maven-plugin:4.0.0.4121:sonar \
+        -Dsonar.host.url=https://sonarcloud.io/ \
+        -Dsonar.organization=vulweb-azuredev \
+        -Dsonar.projectKey=Vulweb-azuredev \
+        -Dsonar.token=60699f4380ab9281d3322a839118144c7e6cec52
+      sleep 5
+      quality_status=$(curl -s -u 60699f4380ab9281d3322a839118144c7e6cec52: https://sonarcloud.io/api/qualitygates/project_status?projectKey=Vulweb-azuredev | jq -r '.projectStatus.status')
+      echo "SonarCloud analysis status is $quality_status"
+      if [[ $quality_status == "ERROR" ]] ; then exit 1; fi
+    displayName: "SAST using SonarCloud to populate code coverage and secure pipeline variables in Azure DevOps DevSecOps Pipeline"
+
+- job: Dastardly_Scan_Job
+  steps:
+  - script: |
+      # Run the Dastardly scan with Docker
+      docker run --user $(id -u) --rm -v $(Pipeline.Workspace)/dastardly_reports:/dastardly \
+      -e BURP_START_URL=https://aimunshidashboard-qa.azurewebsites.net \
+      -e BURP_REPORT_FILE_PATH=/dastardly/dastardly-report.xml \
+      public.ecr.aws/portswigger/dastardly:latest || true
+
+      # Check if the report file exists in the mounted directory
+      if [ -f $(Pipeline.Workspace)/dastardly_reports/dastardly-report.xml ]; then
+        echo "Dastardly scan completed. Report generated at $(Pipeline.Workspace)/dastardly_reports/dastardly-report.xml"
+      else
+        echo "Dastardly scan completed, but no report was generated."
+      fi
+    displayName: "Run Dastardly Scan"
+
+  - task: PublishBuildArtifacts@1
+    inputs:
+      pathtoPublish: '$(Pipeline.Workspace)/dastardly_reports'
+      artifactName: 'DastardlyReport'
+      publishLocation: 'Container'
+    displayName: "Upload Dastardly Report"

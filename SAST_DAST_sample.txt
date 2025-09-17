@@ -1,0 +1,39 @@
+trigger:
+- master
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+jobs:
+- job: Sonar_SAST_Scan_Job
+  container: maven:3.8.1-openjdk-17-slim
+  steps:
+  - script: |
+      mvn verify package org.sonarsource.scanner.maven:sonar-maven-plugin:4.0.0.4121:sonar \
+        -Dsonar.host.url=https://sonarcloud.io/ \
+        -Dsonar.organization=vulweb-azuredev \
+        -Dsonar.projectKey=Vulweb-azuredev \
+        -Dsonar.token=60699f4380ab9281d3322a839118144c7e6cec52
+         sleep 5
+      quality_status=$(curl -s -u 60699f4380ab9281d3322a839118144c7e6cec52: https://sonarcloud.io/api/qualitygates/project_status?projectKey=Vulweb-azuredev | jq -r '.projectStatus.status')
+      echo "SonarCloud analysis status is $quality_status"; 
+      if [[ $quality_status == "ERROR" ]] ; then exit 1;fi
+    displayName: "SAST using SonarCloud to populate code coverage and secure pipeline variables in Azure DevOps DevSecOps Pipeline"
+
+- job: ZAP_Scan
+  pool:
+    vmImage: 'ubuntu-latest'
+  steps:
+  - script: |
+      wget https://github.com/zaproxy/zaproxy/releases/download/v2.14.0/ZAP_2.14.0_Linux.tar.gz
+      tar -xvf ZAP_2.14.0_Linux.tar.gz
+      cd ZAP_2.14.0
+      ./zap.sh -cmd -quickurl https://aimunshidashboard-qa.azurewebsites.net -quickprogress -quickout /home/vsts/work/1/a/zap_report.html
+    displayName: "Integrate DAST scan using OWASP ZAP in ADO DevSecOps Pipeline"
+
+  - task: PublishBuildArtifacts@1
+    inputs:
+      pathToPublish: '/home/vsts/work/1/a/zap_report.html'
+      artifactName: 'zap_report'
+      publishLocation: 'Container'
+    displayName: "Publish OWASP ZAP Report"
